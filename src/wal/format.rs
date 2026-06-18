@@ -6,7 +6,7 @@ const CRC32_SIZE: usize = mem::size_of::<u32>();
 const LEN_SIZE: usize = mem::size_of::<u32>();
 const RECORD_TYPE_SIZE: usize = mem::size_of::<u8>();
 
-const HEADER_SIZE: usize = CRC32_SIZE + LEN_SIZE + LEN_SIZE + RECORD_TYPE_SIZE;
+pub const HEADER_SIZE: usize = CRC32_SIZE + LEN_SIZE + LEN_SIZE + RECORD_TYPE_SIZE;
 
 #[repr(u8)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -15,10 +15,18 @@ pub enum RecordType {
     Delete = 1,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct WalRecord<'a> {
     pub record_type: RecordType,
     pub key: &'a [u8],
     pub value: &'a [u8],
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct WalRecordOwned {
+    pub record_type: RecordType,
+    pub key: Vec<u8>,
+    pub value: Vec<u8>,
 }
 
 pub fn encoded_len(key: &[u8], value: &[u8]) -> usize {
