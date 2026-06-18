@@ -1,0 +1,16 @@
+[package]
+name = "fold-rs"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+crc32fast = "1.5.0"
+
+[dev-dependencies]
+criterion = "0.8.2"
+rand = "0.10.1"
+
+
+[[bench]]
+name = "crc32"
+harness = false
