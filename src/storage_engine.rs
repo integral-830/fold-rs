@@ -66,7 +66,7 @@ impl StorageEngine {
         Ok(())
     }
 
-    pub fn get(&mut self, key: &[u8]) -> Result<Option<Bytes>> {
+    pub fn get(&self, key: &[u8]) -> Result<Option<Bytes>> {
         match self.memtable.get(key) {
             crate::memtable::LookupResult::Found(bytes) => Ok(Some(bytes)),
             crate::memtable::LookupResult::Tombstone => Ok(None),
@@ -98,7 +98,7 @@ mod tests {
             }
         }
 
-        let mut engine = StorageEngine::open(dir.path()).unwrap();
+        let engine = StorageEngine::open(dir.path()).unwrap();
 
         for i in 0..100 {
             let key = format!("key-{i}");
@@ -123,7 +123,7 @@ mod tests {
             engine.delete(b"a").unwrap();
         }
 
-        let mut engine = StorageEngine::open(dir.path()).unwrap();
+        let engine = StorageEngine::open(dir.path()).unwrap();
 
         assert_eq!(engine.get(b"a").unwrap(), None,);
     }
