@@ -5,7 +5,7 @@ use tempfile::tempdir;
 
 fn bench_wal_append(c: &mut Criterion) {
     for value_size in [100, 1024, 10 * 1024] {
-        c.bench_function(&format!("wal_append_{}B", value_size), |b| {
+        c.bench_function(&format!("wal_append_{value_size}B"), |b| {
             let dir = tempdir().unwrap();
             let path = dir.path().join("wal.log");
 

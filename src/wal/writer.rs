@@ -22,16 +22,37 @@ impl WalWriter {
         })
     }
 
-    pub fn append(&mut self, record: &WalRecord<'_>) -> io::Result<()> {
+    fn write_record(&mut self, record: &WalRecord, sync: bool) -> io::Result<()> {
         self.buf.clear();
+
         serialize(record, &mut self.buf);
+
         self.file.write_all(&self.buf)?;
-        self.file.sync_all()?;
+
+        if sync {
+            self.file.sync_all()?;
+        }
+
         Ok(())
+    }
+
+    pub fn append(&mut self, record: &WalRecord<'_>) -> io::Result<()> {
+        self.write_record(record, true)
     }
 
     pub fn path(&self) -> &Path {
         &self.path
+    }
+}
+
+#[cfg(any(test, feature = "bench-utils"))]
+impl WalWriter {
+    pub fn append_without_sync(&mut self, record: &WalRecord) -> io::Result<()> {
+        self.write_record(record, false)
+    }
+
+    pub fn sync(&mut self) -> io::Result<()> {
+        self.file.sync_all()
     }
 }
 
