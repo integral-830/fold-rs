@@ -1,3 +1,4 @@
+pub mod bloom;
 pub mod error;
 pub mod memtable;
 pub mod storage_engine;
