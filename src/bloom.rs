@@ -1,6 +1,6 @@
 use core::f64;
 use std::f64::consts::LN_2;
-use std::usize;
+use std::io::{self, Write};
 
 const SEED1: u64 = 0x517cc1b727220a95;
 const SEED2: u64 = 0x9e3779b97f4a7c15;
@@ -57,6 +57,17 @@ impl BloomFilter {
             }
         }
         true
+    }
+
+    pub fn write_to<W: Write>(&self, writer: &mut W) -> io::Result<()> {
+        writer.write_all(&(self.num_bits as u32).to_le_bytes())?;
+        writer.write_all(&[self.k as u8])?;
+        writer.write_all(&self.bits)?;
+        Ok(())
+    }
+
+    pub fn serialized_size(&self) -> usize {
+        std::mem::size_of::<u32>() + std::mem::size_of::<u8>() + self.bits.len()
     }
 }
 

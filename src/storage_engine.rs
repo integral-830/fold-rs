@@ -1,3 +1,4 @@
+use std::io;
 use std::{
     fs,
     path::{Path, PathBuf},
@@ -22,6 +23,7 @@ impl StorageEngine {
     pub fn open(dir: impl AsRef<Path>) -> Result<Self> {
         let dir = dir.as_ref().to_path_buf();
         fs::create_dir_all(&dir)?;
+        cleanup_orphan_sstables(dir.as_ref())?;
         let wal_path = dir.join(WAL_FILE_NAME);
         let wal = WalWriter::open(&wal_path)?;
         let memtable = Memtable::new();
@@ -78,6 +80,22 @@ impl StorageEngine {
     }
 }
 
+fn cleanup_orphan_sstables(dir: &Path) -> io::Result<()> {
+    for entry in fs::read_dir(dir)? {
+        let entry = entry?;
+
+        let path = entry.path();
+
+        if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
+            if name.ends_with(".sst.tmp") {
+                fs::remove_file(path)?;
+            }
+        }
+    }
+
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::StorageEngine;
@@ -126,5 +144,20 @@ mod tests {
         let engine = StorageEngine::open(dir.path()).unwrap();
 
         assert_eq!(engine.get(b"a").unwrap(), None,);
+    }
+
+    #[test]
+    fn removes_orphan_sstables() {
+        let dir = tempfile::tempdir().unwrap();
+
+        let orphan = dir.path().join("000001.sst.tmp");
+
+        std::fs::write(&orphan, b"garbage").unwrap();
+
+        assert!(orphan.exists());
+
+        StorageEngine::open(dir.path()).unwrap();
+
+        assert!(!orphan.exists());
     }
 }
