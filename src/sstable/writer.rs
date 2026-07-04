@@ -9,17 +9,22 @@ use bytes::{BufMut, Bytes};
 
 use crate::bloom::{bloom_size, BloomFilter};
 use crate::memtable::Entry;
+use crate::sstable::footer::Footer;
 
 const SSTABLE_VERSION: u8 = 1;
-pub const SSTABLE_MAGIC: u64 = 0x53535441424C4B31;
 const TARGET_BLOCK_SIZE: usize = 4096;
+
+pub struct IndexEntry {
+    pub first_key: Bytes,
+    pub block_offset: u64,
+}
 
 pub struct SstableWriter {
     tmp_file: File,
     tmp_path: PathBuf,
     final_path: PathBuf,
     current_block: Vec<u8>,
-    index_entries: Vec<(Bytes, u64)>,
+    index_entries: Vec<IndexEntry>,
     bloom: BloomFilter,
     bytes_written: u64,
     first_key_in_block: Option<Bytes>,
@@ -105,7 +110,10 @@ impl SstableWriter {
             .first_key_in_block
             .take()
             .expect("Block must have 1st key.");
-        self.index_entries.push((first_key, self.bytes_written));
+        self.index_entries.push(IndexEntry {
+            first_key,
+            block_offset: self.bytes_written,
+        });
         self.bytes_written += self.current_block.len() as u64;
         self.current_block.clear();
         Ok(())
@@ -115,21 +123,22 @@ impl SstableWriter {
         self.flush_block()?;
         let index_offset = self.bytes_written;
         let mut index = Vec::new();
-        for (key, offset) in &self.index_entries {
-            index.put_u32_le(key.len() as u32);
-            index.extend_from_slice(key);
-            index.put_u64_le(*offset);
+        for index_entry in &self.index_entries {
+            index.put_u32_le(index_entry.first_key.len() as u32);
+            index.extend_from_slice(&index_entry.first_key);
+            index.put_u64_le(index_entry.block_offset);
         }
         self.tmp_file.write_all(&index)?;
         self.bytes_written += index.len() as u64;
         let bloom_offset = self.bytes_written;
         self.bloom.write_to(&mut self.tmp_file)?;
         self.bytes_written += self.bloom.serialized_size() as u64;
-        self.tmp_file.write_all(&index_offset.to_le_bytes())?;
-        self.tmp_file.write_all(&bloom_offset.to_le_bytes())?;
-        self.tmp_file.write_all(&[SSTABLE_VERSION])?;
-        self.tmp_file.write_all(&[0; 7])?;
-        self.tmp_file.write_all(&SSTABLE_MAGIC.to_le_bytes())?;
+        let footer = Footer {
+            index_offset,
+            bloom_offset,
+            version: SSTABLE_VERSION,
+        };
+        footer.write_to(&mut self.tmp_file)?;
         self.tmp_file.sync_all()?;
         drop(self.tmp_file);
         rename(&self.tmp_path, &self.final_path)?;

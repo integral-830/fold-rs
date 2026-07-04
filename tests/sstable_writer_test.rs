@@ -4,7 +4,7 @@ use std::{
 };
 
 use bytes::Bytes;
-use fold_rs::sstable::writer::SSTABLE_MAGIC;
+use fold_rs::sstable::footer::SSTABLE_MAGIC;
 use tempfile::tempdir;
 
 use fold_rs::{memtable::Memtable, sstable::writer::SstableWriter};

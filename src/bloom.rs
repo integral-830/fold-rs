@@ -1,6 +1,6 @@
 use core::f64;
 use std::f64::consts::LN_2;
-use std::io::{self, Write};
+use std::io::{self, Read, Write};
 
 const SEED1: u64 = 0x517cc1b727220a95;
 const SEED2: u64 = 0x9e3779b97f4a7c15;
@@ -68,6 +68,28 @@ impl BloomFilter {
 
     pub fn serialized_size(&self) -> usize {
         std::mem::size_of::<u32>() + std::mem::size_of::<u8>() + self.bits.len()
+    }
+
+    pub fn read_from(mut bytes: &[u8]) -> io::Result<Self> {
+        let mut u32_buf = [0u8; 4];
+
+        bytes.read_exact(&mut u32_buf)?;
+        let num_bits = u32::from_le_bytes(u32_buf) as usize;
+
+        let mut k = [0u8; 1];
+        bytes.read_exact(&mut k)?;
+
+        let byte_count = num_bits.div_ceil(8);
+
+        let mut bit_array = vec![0; byte_count];
+
+        bytes.read_exact(&mut bit_array)?;
+
+        Ok(Self {
+            bits: bit_array,
+            num_bits,
+            k: k[0] as u32,
+        })
     }
 }
 
