@@ -8,10 +8,14 @@ use fold_rs::{
 };
 use tempfile::TempDir;
 
+fn wal_path(dir: &std::path::Path, seq: u64) -> std::path::PathBuf {
+    dir.join(format!("wal.{seq:08}.log"))
+}
+
 fn generate_wal(records: usize) -> TempDir {
     let dir = tempfile::tempdir().unwrap();
 
-    let wal_path = dir.path().join("wal.log");
+    let wal_path = wal_path(dir.path(), 1);
 
     let mut writer = WalWriter::open(&wal_path).unwrap();
 
@@ -29,7 +33,7 @@ fn generate_wal(records: usize) -> TempDir {
         writer.append_without_sync(&record).unwrap();
     }
 
-    writer.sync().unwrap();
+    writer.sync_all().unwrap();
 
     dir
 }

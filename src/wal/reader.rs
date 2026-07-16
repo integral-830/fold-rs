@@ -80,7 +80,7 @@ impl Iterator for WalReader {
 
 #[cfg(test)]
 mod tests {
-    use crate::wal::format::{RecordType, WalRecord, HEADER_SIZE};
+    use crate::wal::format::{HEADER_SIZE, RecordType, WalRecord};
     use crate::wal::reader::WalReader;
     use crate::wal::writer::WalWriter;
 

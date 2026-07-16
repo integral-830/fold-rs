@@ -1,13 +1,13 @@
 use std::fs::rename;
 use std::io::{self, Result, Write};
 use std::{
-    fs::{create_dir_all, File, OpenOptions},
+    fs::{File, OpenOptions, create_dir_all},
     path::{Path, PathBuf},
 };
 
 use bytes::{BufMut, Bytes};
 
-use crate::bloom::{bloom_size, BloomFilter};
+use crate::bloom::{BloomFilter, bloom_size};
 use crate::memtable::Entry;
 use crate::sstable::footer::Footer;
 

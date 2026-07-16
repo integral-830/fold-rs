@@ -2,7 +2,7 @@ use std::fs::{File, OpenOptions};
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 
-use crate::wal::format::{serialize, WalRecord};
+use crate::wal::format::{WalRecord, serialize};
 
 pub struct WalWriter {
     file: File,
@@ -43,6 +43,10 @@ impl WalWriter {
     pub fn path(&self) -> &Path {
         &self.path
     }
+
+    pub fn sync_all(&mut self) -> io::Result<()> {
+        self.file.sync_all()
+    }
 }
 
 #[cfg(any(test, feature = "bench-utils"))]
@@ -50,15 +54,11 @@ impl WalWriter {
     pub fn append_without_sync(&mut self, record: &WalRecord) -> io::Result<()> {
         self.write_record(record, false)
     }
-
-    pub fn sync(&mut self) -> io::Result<()> {
-        self.file.sync_all()
-    }
 }
 
 #[cfg(test)]
 mod tests {
-    use crate::wal::format::{encoded_len, RecordType, WalRecord};
+    use crate::wal::format::{RecordType, WalRecord, encoded_len};
     use crate::wal::writer::WalWriter;
 
     #[test]

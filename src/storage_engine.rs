@@ -9,6 +9,7 @@ use bytes::Bytes;
 
 use crate::error::Result;
 use crate::sstable::reader::SstableReader;
+use crate::sstable::writer::SstableWriter;
 use crate::wal::format::{RecordType, WalRecord};
 use crate::wal::reader::WalReader;
 use crate::{memtable::Memtable, wal::writer::WalWriter};
@@ -21,7 +22,8 @@ pub struct StorageEngine {
     nx_sstable_seq: AtomicU64,
     sstables: Vec<SstableReader>,
     wal: WalWriter,
-    wal_seq: AtomicU64,
+    current_wal_path: PathBuf,
+    next_wal_seq: AtomicU64,
 }
 
 impl StorageEngine {
@@ -30,8 +32,8 @@ impl StorageEngine {
         fs::create_dir_all(&dir)?;
         cleanup_orphan_sstables(dir.as_ref())?;
         let (sstables, nx_sstable_seq) = load_sstables(&dir)?;
-        let (latest_wal,next_wal_seq) = load_wal_generation(&dir)?;
-        let wal_path = dir.join(format!("wal.{next_wal_seq:08}"));
+        let (_latest_wal, next_wal_seq) = load_wal_generation(&dir)?;
+        let wal_path = dir.join(format!("wal.{next_wal_seq:08}.log"));
         let wal = WalWriter::open(&wal_path)?;
         let memtable = Memtable::new();
         let mut engine = Self {
@@ -40,22 +42,23 @@ impl StorageEngine {
             nx_sstable_seq: AtomicU64::new(nx_sstable_seq),
             sstables,
             wal,
-            wal_seq: AtomicU64::new(next_wal_seq),
+            current_wal_path: wal_path,
+            next_wal_seq: AtomicU64::new(next_wal_seq),
         };
 
-        if let Some(path) = latest_wal {
-        engine.replay(&path)?;
-        }
+        engine.replay()?;
         Ok(engine)
     }
 
-    fn replay(&mut self, wal_path: &Path) -> Result<()> {
-        let reader = WalReader::open(&wal_path)?;
-
-        for record in reader {
-            match record.record_type {
-                RecordType::Put => self.memtable.put(record.key.into(), record.value.into()),
-                RecordType::Delete => self.memtable.delete(record.key.into()),
+    fn replay(&mut self) -> Result<()> {
+        let wal_files = load_wals(&self.dir)?;
+        for wal in wal_files {
+            let reader = WalReader::open(&wal)?;
+            for record in reader {
+                match record.record_type {
+                    RecordType::Put => self.memtable.put(record.key.into(), record.value.into()),
+                    RecordType::Delete => self.memtable.delete(record.key.into()),
+                }
             }
         }
         Ok(())
@@ -70,6 +73,9 @@ impl StorageEngine {
         self.wal.append(&record)?;
         self.memtable
             .put(Bytes::copy_from_slice(key), Bytes::copy_from_slice(value));
+        if self.memtable.size_bytes() >= FLUSH_THRESHOLD_BYTES {
+            self.flush()?;
+        }
         Ok(())
     }
 
@@ -81,6 +87,9 @@ impl StorageEngine {
         };
         self.wal.append(&record)?;
         self.memtable.delete(Bytes::copy_from_slice(key));
+        if self.memtable.size_bytes() >= FLUSH_THRESHOLD_BYTES {
+            self.flush()?;
+        }
         Ok(())
     }
 
@@ -95,12 +104,42 @@ impl StorageEngine {
         }
     }
 
-    fn next_sstable_seq(&self)->u64{
-        self.nx_sstable_seq.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+    fn next_sstable_seq(&self) -> u64 {
+        self.nx_sstable_seq
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed)
     }
 
-    fn next_wal_seq(&self)->u64{
-        self.wal_seq.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+    fn next_wal_seq(&self) -> u64 {
+        self.next_wal_seq
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+    }
+
+    fn rotate_wal(&mut self) -> io::Result<()> {
+        self.wal.sync_all()?;
+        let old_path = self.current_wal_path.clone();
+        let seq = self.next_wal_seq();
+        let new_path = self.dir.join(format!("wal.{seq}:08"));
+        let new_wal = WalWriter::open(&new_path)?;
+        self.current_wal_path = new_path;
+        self.wal = new_wal;
+        fs::remove_file(old_path)?;
+        Ok(())
+    }
+    fn flush(&mut self) -> io::Result<()> {
+        if self.memtable.is_empty() {
+            return Ok(());
+        }
+        let sstable_seq = self.next_sstable_seq();
+        let mut writer = SstableWriter::new(&self.dir, sstable_seq, self.memtable.len())?;
+        for (key, entry) in self.memtable.iter() {
+            writer.add(key, entry)?;
+        }
+        let meta = writer.finish()?;
+        let reader = SstableReader::open(&meta.path)?;
+        self.rotate_wal()?;
+        self.memtable = Memtable::new();
+        self.sstables.push(reader);
+        Ok(())
     }
 }
 
@@ -132,9 +171,38 @@ fn load_sstables(dir: &Path) -> io::Result<(Vec<SstableReader>, u64)> {
     Ok((sstables, next_seq))
 }
 
-fn load_wal_generation(
-    dir: &Path,
-) -> io::Result<(Option<PathBuf>, u64)> {
+fn load_wals(dir: &Path) -> io::Result<Vec<PathBuf>> {
+    let mut files = Vec::<(u64, PathBuf)>::new();
+
+    for entry in fs::read_dir(dir)? {
+        let entry = entry?;
+        let path = entry.path();
+
+        let Some(name) = path.file_name().and_then(|n| n.to_str()) else {
+            continue;
+        };
+
+        if !name.starts_with("wal.") || !name.ends_with(".log") {
+            continue;
+        }
+
+        let Some(seq) = name
+            .strip_prefix("wal.")
+            .and_then(|s| s.strip_suffix(".log"))
+            .and_then(|s| s.parse::<u64>().ok())
+        else {
+            continue;
+        };
+
+        files.push((seq, path));
+    }
+
+    files.sort_by_key(|(seq, _)| *seq);
+
+    Ok(files.into_iter().map(|(_, path)| path).collect())
+}
+
+fn load_wal_generation(dir: &Path) -> io::Result<(Option<PathBuf>, u64)> {
     let mut latest: Option<(u64, PathBuf)> = None;
 
     for entry in fs::read_dir(dir)? {
@@ -170,12 +238,21 @@ fn cleanup_orphan_sstables(dir: &Path) -> io::Result<()> {
 
         let path = entry.path();
 
-        if let Some(name) = path.file_name().and_then(|n| n.to_str()) && name.ends_with(".sst.tmp") {
+        if let Some(name) = path.file_name().and_then(|n| n.to_str())
+            && name.ends_with(".sst.tmp")
+        {
             fs::remove_file(path)?;
         }
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+impl StorageEngine {
+    pub fn sstable_count(&self) -> usize {
+        self.sstables.len()
+    }
 }
 
 #[cfg(test)]
@@ -242,4 +319,52 @@ mod tests {
 
         assert!(!orphan.exists());
     }
+}
+
+#[test]
+fn creates_multiple_sstables_after_many_flushes() {
+    use bytes::Bytes;
+
+    const TOTAL_DATA: usize = 50 * 1024 * 1024;
+    const VALUE_SIZE: usize = 1024;
+
+    let dir = tempfile::tempdir().unwrap();
+
+    let mut engine = StorageEngine::open(dir.path()).unwrap();
+
+    let mut written = 0usize;
+    let mut key_index = 0usize;
+
+    while written < TOTAL_DATA {
+        let key = format!("key-{key_index}");
+        let value = Bytes::from(vec![(key_index % 256) as u8; VALUE_SIZE]);
+
+        engine
+            .put(key.as_bytes(), value.as_ref())
+            .unwrap();
+
+        written += key.len() + value.len();
+
+        key_index += 1;
+
+        if key_index % 5000 == 0 {
+    println!("inserted {key_index}");
+}
+    }
+
+    let expected_flushes = TOTAL_DATA / FLUSH_THRESHOLD_BYTES;
+
+    assert!(
+        engine.sstable_count() >= expected_flushes.saturating_sub(1),
+        "too few SSTables: expected about {}, got {}",
+        expected_flushes,
+        engine.sstable_count(),
+    );
+
+    assert!(
+        engine.sstable_count() <= expected_flushes + 1,
+        "too many SSTables: expected about {}, got {}",
+        expected_flushes,
+        engine.sstable_count(),
+    );
 }

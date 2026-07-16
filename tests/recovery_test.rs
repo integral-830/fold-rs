@@ -134,5 +134,5 @@ fn opens_empty_wal() {
 }
 
 fn wal_path(dir: &std::path::Path, seq: u64) -> std::path::PathBuf {
-    dir.join(format!("wal.{seq:08}"))
+    dir.join(format!("wal.{seq:08}.log"))
 }

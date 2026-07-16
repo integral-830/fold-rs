@@ -1,7 +1,7 @@
 use bytes::Bytes;
-use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion};
+use criterion::{BenchmarkId, Criterion, criterion_group, criterion_main};
 use fold_rs::memtable::Memtable;
-use rand::{distr::Alphanumeric, Rng, RngExt};
+use rand::{Rng, RngExt, distr::Alphanumeric};
 
 const OPS: usize = 1000;
 

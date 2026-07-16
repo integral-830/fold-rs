@@ -5,7 +5,7 @@ use std::{
 };
 
 use fold_rs::storage_engine::StorageEngine;
-use rand::{distr::Alphanumeric, Rng, RngExt};
+use rand::{Rng, RngExt, distr::Alphanumeric};
 
 fn random_string(rng: &mut impl Rng, len: usize) -> String {
     rng.sample_iter(&Alphanumeric)

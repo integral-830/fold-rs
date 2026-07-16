@@ -70,6 +70,15 @@ impl Memtable {
     pub fn iter(&self) -> impl Iterator<Item = (&Bytes, &Entry)> {
         self.data.iter()
     }
+    pub fn len(&self) -> usize {
+        self.data.len()
+    }
+    pub fn is_empty(&self) -> bool {
+        self.data.is_empty()
+    }
+    pub fn size_bytes(&self) -> usize {
+        self.size_bytes
+    }
 }
 
 impl Default for Memtable {
@@ -88,7 +97,7 @@ fn calc_entry_size(key: &Bytes, entry: &Entry) -> usize {
 
 #[cfg(test)]
 mod tests {
-    use crate::memtable::{calc_entry_size, LookupResult, Memtable, ENTRY_OVERHEAD_BYTES};
+    use crate::memtable::{ENTRY_OVERHEAD_BYTES, LookupResult, Memtable, calc_entry_size};
 
     #[test]
     fn iter_returns_sorted_keys() {

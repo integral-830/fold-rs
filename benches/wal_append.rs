@@ -1,4 +1,4 @@
-use criterion::{criterion_group, criterion_main, Criterion};
+use criterion::{Criterion, criterion_group, criterion_main};
 use fold_rs::wal::format::{RecordType, WalRecord};
 use fold_rs::wal::writer::WalWriter;
 use tempfile::tempdir;

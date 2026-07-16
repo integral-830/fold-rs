@@ -1,7 +1,7 @@
 use std::hint::black_box;
 
-use criterion::{criterion_group, criterion_main, Criterion};
-use rand::{rng, Rng};
+use criterion::{Criterion, criterion_group, criterion_main};
+use rand::{Rng, rng};
 
 fn crc32_1mb(c: &mut Criterion) {
     let mut data = vec![0u8; 1024 * 1024];

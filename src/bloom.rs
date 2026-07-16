@@ -126,7 +126,7 @@ mod tests {
 
     use rand::RngExt;
 
-    use super::{bloom_size, BloomFilter};
+    use super::{BloomFilter, bloom_size};
 
     #[test]
     fn bloom_size_for_1000_keys_1_percent() {
