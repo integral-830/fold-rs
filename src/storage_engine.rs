@@ -1,4 +1,5 @@
 use std::io;
+use std::sync::atomic::AtomicU64;
 use std::{
     fs,
     path::{Path, PathBuf},
@@ -7,16 +8,20 @@ use std::{
 use bytes::Bytes;
 
 use crate::error::Result;
+use crate::sstable::reader::SstableReader;
 use crate::wal::format::{RecordType, WalRecord};
 use crate::wal::reader::WalReader;
 use crate::{memtable::Memtable, wal::writer::WalWriter};
 
-const WAL_FILE_NAME: &str = "wal.log";
+const FLUSH_THRESHOLD_BYTES: usize = 4 * 1024 * 1024;
 
 pub struct StorageEngine {
-    wal: WalWriter,
-    memtable: Memtable,
     dir: PathBuf,
+    memtable: Memtable,
+    nx_sstable_seq: AtomicU64,
+    sstables: Vec<SstableReader>,
+    wal: WalWriter,
+    wal_seq: AtomicU64,
 }
 
 impl StorageEngine {
@@ -24,16 +29,27 @@ impl StorageEngine {
         let dir = dir.as_ref().to_path_buf();
         fs::create_dir_all(&dir)?;
         cleanup_orphan_sstables(dir.as_ref())?;
-        let wal_path = dir.join(WAL_FILE_NAME);
+        let (sstables, nx_sstable_seq) = load_sstables(&dir)?;
+        let (latest_wal,next_wal_seq) = load_wal_generation(&dir)?;
+        let wal_path = dir.join(format!("wal.{next_wal_seq:08}"));
         let wal = WalWriter::open(&wal_path)?;
         let memtable = Memtable::new();
-        let mut engine = Self { wal, memtable, dir };
-        engine.replay()?;
+        let mut engine = Self {
+            dir,
+            memtable,
+            nx_sstable_seq: AtomicU64::new(nx_sstable_seq),
+            sstables,
+            wal,
+            wal_seq: AtomicU64::new(next_wal_seq),
+        };
+
+        if let Some(path) = latest_wal {
+        engine.replay(&path)?;
+        }
         Ok(engine)
     }
 
-    fn replay(&mut self) -> Result<()> {
-        let wal_path = self.dir.join(WAL_FILE_NAME);
+    fn replay(&mut self, wal_path: &Path) -> Result<()> {
         let reader = WalReader::open(&wal_path)?;
 
         for record in reader {
@@ -78,6 +94,74 @@ impl StorageEngine {
             }
         }
     }
+
+    fn next_sstable_seq(&self)->u64{
+        self.nx_sstable_seq.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+    }
+
+    fn next_wal_seq(&self)->u64{
+        self.wal_seq.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+    }
+}
+
+fn load_sstables(dir: &Path) -> io::Result<(Vec<SstableReader>, u64)> {
+    let mut files = Vec::<(u64, PathBuf)>::new();
+    for entry in fs::read_dir(dir)? {
+        let entry = entry?;
+        let path = entry.path();
+        let Some(name) = path.file_name().and_then(|n| n.to_str()) else {
+            continue;
+        };
+        if !name.ends_with(".sst") {
+            continue;
+        }
+        let Some(seq) = name
+            .strip_suffix(".sst")
+            .and_then(|s| s.parse::<u64>().ok())
+        else {
+            continue;
+        };
+        files.push((seq, path));
+    }
+    files.sort_by_key(|(seq, _)| *seq);
+    let next_seq = files.last().map(|(seq, _)| seq + 1).unwrap_or(1);
+    let mut sstables = Vec::with_capacity(files.len());
+    for (_, path) in files.into_iter().rev() {
+        sstables.push(SstableReader::open(path)?);
+    }
+    Ok((sstables, next_seq))
+}
+
+fn load_wal_generation(
+    dir: &Path,
+) -> io::Result<(Option<PathBuf>, u64)> {
+    let mut latest: Option<(u64, PathBuf)> = None;
+
+    for entry in fs::read_dir(dir)? {
+        let entry = entry?;
+        let path = entry.path();
+
+        let Some(name) = path.file_name().and_then(|n| n.to_str()) else {
+            continue;
+        };
+
+        let Some(seq) = name
+            .strip_prefix("wal.")
+            .and_then(|s| s.parse::<u64>().ok())
+        else {
+            continue;
+        };
+
+        match &latest {
+            Some((max, _)) if *max >= seq => {}
+            _ => latest = Some((seq, path)),
+        }
+    }
+
+    match latest {
+        Some((seq, path)) => Ok((Some(path), seq + 1)),
+        None => Ok((None, 1)),
+    }
 }
 
 fn cleanup_orphan_sstables(dir: &Path) -> io::Result<()> {
@@ -86,10 +170,8 @@ fn cleanup_orphan_sstables(dir: &Path) -> io::Result<()> {
 
         let path = entry.path();
 
-        if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
-            if name.ends_with(".sst.tmp") {
-                fs::remove_file(path)?;
-            }
+        if let Some(name) = path.file_name().and_then(|n| n.to_str()) && name.ends_with(".sst.tmp") {
+            fs::remove_file(path)?;
         }
     }
 

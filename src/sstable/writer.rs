@@ -45,8 +45,8 @@ impl SstableWriter {
     pub fn new(dir: impl AsRef<Path>, seq: u64, expected_keys: usize) -> Result<Self> {
         let dir = dir.as_ref();
         create_dir_all(dir)?;
-        let tmp_path = dir.join(format!("{seq:06}.tmp"));
-        let final_path = dir.join(format!("{seq:06}.sst"));
+        let tmp_path = dir.join(format!("{seq:08}.tmp"));
+        let final_path = dir.join(format!("{seq:08}.sst"));
         let tmp_file = OpenOptions::new()
             .create(true)
             .truncate(true)

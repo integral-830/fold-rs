@@ -59,13 +59,12 @@ fn ignores_half_written_final_record() {
         },
     };
 
+    const N: usize = 100;
     let dir = tempfile::tempdir().unwrap();
 
-    let wal_path = dir.path().join("wal.log");
+    let wal_path = wal_path(dir.path(), 1);
 
     let mut writer = WalWriter::open(&wal_path).unwrap();
-
-    const N: usize = 100;
 
     for i in 0..N {
         let key = format!("key-{i}");
@@ -132,4 +131,8 @@ fn opens_empty_wal() {
     let engine = StorageEngine::open(dir.path()).unwrap();
 
     assert_eq!(engine.get(b"missing").unwrap(), None);
+}
+
+fn wal_path(dir: &std::path::Path, seq: u64) -> std::path::PathBuf {
+    dir.join(format!("wal.{seq:08}"))
 }
