@@ -34,3 +34,7 @@ harness = false
 [[bench]]
 name = "recovery"
 harness = false
+
+[[bench]]
+name = "read_amplification"
+harness = false

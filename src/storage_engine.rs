@@ -151,6 +151,11 @@ impl StorageEngine {
         self.sstables.push(reader);
         Ok(())
     }
+    #[cfg(feature = "bench-utils")]
+    pub fn flush_for_test(&mut self) -> io::Result<()> {
+        self.flush()
+    }
+
 }
 
 fn load_sstables(dir: &Path) -> io::Result<(Vec<SstableReader>, u64)> {
