@@ -1,6 +1,6 @@
 use bytes::Bytes;
-use fold_rs::memtable::{Entry, LookupResult};
-use fold_rs::sstable::reader::SstableReader;
+use fold_rs::memtable::Entry;
+use fold_rs::sstable::reader::{SstableLookup, SstableReader};
 use fold_rs::sstable::writer::SstableWriter;
 
 #[test]
@@ -27,7 +27,7 @@ fn zero_false_negative_end_to_end() {
 
     for (key, value) in expected {
         match reader.get(&key).unwrap() {
-            Some(LookupResult::Found(v)) => {
+            Some(SstableLookup::Found(v)) => {
                 assert_eq!(v, value);
             }
 

@@ -8,7 +8,7 @@ use std::{
 use bytes::Bytes;
 
 use crate::error::Result;
-use crate::sstable::reader::SstableReader;
+use crate::sstable::reader::{SstableLookup, SstableReader};
 use crate::sstable::writer::SstableWriter;
 use crate::wal::format::{RecordType, WalRecord};
 use crate::wal::reader::WalReader;
@@ -95,13 +95,23 @@ impl StorageEngine {
 
     pub fn get(&self, key: &[u8]) -> Result<Option<Bytes>> {
         match self.memtable.get(key) {
-            crate::memtable::LookupResult::Found(bytes) => Ok(Some(bytes)),
-            crate::memtable::LookupResult::Tombstone => Ok(None),
-            crate::memtable::LookupResult::NotInMemtable => {
-                //TODO: check self.sstables later
-                Ok(None)
+            crate::memtable::LookupResult::Found(bytes) => return Ok(Some(bytes)),
+            crate::memtable::LookupResult::Tombstone => return Ok(None),
+            crate::memtable::LookupResult::NotInMemtable => {}
+        }
+
+        for sstable in self.sstables.iter().rev() {
+            match sstable.get(key)? {
+                Some(SstableLookup::Found(value)) => {
+                    return Ok(Some(value));
+                }
+                Some(SstableLookup::Tombstone) => {
+                    return Ok(None);
+                }
+                None => {}
             }
         }
+        Ok(None)
     }
 
     fn next_sstable_seq(&self) -> u64 {
@@ -253,6 +263,9 @@ impl StorageEngine {
     pub fn sstable_count(&self) -> usize {
         self.sstables.len()
     }
+    fn flush_for_test(&mut self) -> std::io::Result<()> {
+        self.flush()
+    }
 }
 
 #[cfg(test)]
@@ -319,6 +332,23 @@ mod tests {
 
         assert!(!orphan.exists());
     }
+
+    #[test]
+    fn overwrite_across_flush_boundary_returns_newest_value() {
+        let dir = tempfile::tempdir().unwrap();
+
+        let mut engine = StorageEngine::open(dir.path()).unwrap();
+
+        engine.put(b"k", b"v1").unwrap();
+
+        engine.flush_for_test().unwrap();
+
+        assert_eq!(engine.sstable_count(), 1);
+
+        engine.put(b"k", b"v2").unwrap();
+
+        assert_eq!(engine.get(b"k").unwrap(), Some(bytes::Bytes::from("v2")),);
+    }
 }
 
 #[test]
@@ -339,17 +369,15 @@ fn creates_multiple_sstables_after_many_flushes() {
         let key = format!("key-{key_index}");
         let value = Bytes::from(vec![(key_index % 256) as u8; VALUE_SIZE]);
 
-        engine
-            .put(key.as_bytes(), value.as_ref())
-            .unwrap();
+        engine.put(key.as_bytes(), value.as_ref()).unwrap();
 
         written += key.len() + value.len();
 
         key_index += 1;
 
-        if key_index % 5000 == 0 {
-    println!("inserted {key_index}");
-}
+        if key_index.is_multiple_of(5000) {
+            println!("inserted {key_index}");
+        }
     }
 
     let expected_flushes = TOTAL_DATA / FLUSH_THRESHOLD_BYTES;

@@ -6,7 +6,6 @@ use bytes::Bytes;
 use memmap2::Mmap;
 
 use crate::bloom::BloomFilter;
-use crate::memtable::LookupResult;
 use crate::sstable::footer::FOOTER_SIZE;
 
 use super::footer::Footer;
@@ -17,6 +16,12 @@ pub struct SstableReader {
     index: Vec<IndexEntry>,
     bloom: BloomFilter,
     footer: Footer,
+}
+
+#[derive(Clone, PartialEq, Debug)]
+pub enum SstableLookup {
+    Found(Bytes),
+    Tombstone,
 }
 
 impl SstableReader {
@@ -95,7 +100,7 @@ impl SstableReader {
         }
     }
 
-    fn scan_block(&self, block_offset: u64, key: &[u8]) -> io::Result<Option<LookupResult>> {
+    fn scan_block(&self, block_offset: u64, key: &[u8]) -> io::Result<Option<SstableLookup>> {
         let block_end = self
             .index
             .iter()
@@ -127,11 +132,11 @@ impl SstableReader {
                 std::cmp::Ordering::Less => {}
                 std::cmp::Ordering::Equal => {
                     if record_type[0] == 1 {
-                        return Ok(Some(LookupResult::Tombstone));
+                        return Ok(Some(SstableLookup::Tombstone));
                     }
                     let mut value = vec![0; value_len];
                     bytes.read_exact(&mut value)?;
-                    return Ok(Some(LookupResult::Found(Bytes::from(value))));
+                    return Ok(Some(SstableLookup::Found(Bytes::from(value))));
                 }
                 std::cmp::Ordering::Greater => return Ok(None),
             }
@@ -140,7 +145,7 @@ impl SstableReader {
         Ok(None)
     }
 
-    pub fn get(&self, key: &[u8]) -> io::Result<Option<LookupResult>> {
+    pub fn get(&self, key: &[u8]) -> io::Result<Option<SstableLookup>> {
         if !self.bloom.may_contain(key) {
             return Ok(None);
         }
