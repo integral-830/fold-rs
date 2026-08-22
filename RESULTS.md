@@ -18,7 +18,7 @@ and [FORMAT.md](FORMAT.md) for the underlying on-disk formats.
 
 - Benchmarks live in `benches/`: `wal_append.rs`, `recovery.rs`,
   `mmap_vs_read.rs`, `read_amplification.rs`.
-- The WAL append results in §2 were measured on Apple Silicon.
+- The WAL append results in §2 were measured on Apple Silicon(M2).
 - Benchmarks that use the `flush_for_test()` helper require the `bench-utils`
   Cargo feature:
 
@@ -36,13 +36,13 @@ File: `benches/wal_append.rs`
 
 With `sync_all()` called on every single append (current durability model,
 [ARCHITECTURE.md §9](ARCHITECTURE.md#9-durability-guarantee)), measured on
-Apple Silicon:
+Apple Silicon(M2):
 
-| Value size | Latency / op | Throughput |
-|---|---|---|
-| 100 B | 1.4593 – 1.5123 ms/op | ~675 ops/sec |
-| 1 KiB | 2.5962 – 2.6778 ms/op | ~380 ops/sec |
-| 10 KiB | 3.0930 – 3.2056 ms/op | ~318 ops/sec |
+| Value size | Latency / op          | Throughput   |
+| ---------- | --------------------- | ------------ |
+| 100 B      | 1.4593 – 1.5123 ms/op | ~675 ops/sec |
+| 1 KiB      | 2.5962 – 2.6778 ms/op | ~380 ops/sec |
+| 10 KiB     | 3.0930 – 3.2056 ms/op | ~318 ops/sec |
 
 This establishes a **durability-heavy baseline**: throughput is dominated by
 fsync cost, not by serialization or in-memory work, and scales down as value
@@ -100,21 +100,21 @@ filter/index before reaching the SSTable that actually holds them).
 
 ### Representative Criterion central timings
 
-| SSTables | Latency | Relative to 1 SSTable |
-|---|---|---|
-| 1 | 281.8 ns | 1.00x |
-| 5 | 394.5 ns | 1.40x |
-| 10 | 527.7 ns | 1.87x |
-| 20 | 823.2 ns | 2.92x |
+| SSTables | Latency  | Relative to 1 SSTable |
+| -------- | -------- | --------------------- |
+| 1        | 281.8 ns | 1.00x                 |
+| 5        | 394.5 ns | 1.40x                 |
+| 10       | 527.7 ns | 1.87x                 |
+| 20       | 823.2 ns | 2.92x                 |
 
 ### Measured raw ranges across repeated runs
 
-| SSTables | Range |
-|---|---|
-| 1 | ~281.46 – 282.33 ns |
-| 5 | ~390.20 – 394.73 ns |
-| 10 | ~527.07 – 538.17 ns |
-| 20 | ~820.70 – 880.96 ns |
+| SSTables | Range               |
+| -------- | ------------------- |
+| 1        | ~281.46 – 282.33 ns |
+| 5        | ~390.20 – 394.73 ns |
+| 10       | ~527.07 – 538.17 ns |
+| 20       | ~820.70 – 880.96 ns |
 
 ## 6. Read Latency Table
 
@@ -128,7 +128,8 @@ sub-linear scaling would predict at low counts: going from 1 → 5 SSTables
 (5x more SSTables) costs 1.40x latency, while 1 → 20 SSTables (20x more
 SSTables) costs 2.92x latency. In other words, each additional SSTable adds a
 diminishing but still non-trivial fixed cost, consistent with the Bloom-check
-+ index-lookup overhead described in §8.
+
+- index-lookup overhead described in §8.
 
 ## 8. Interpretation
 
