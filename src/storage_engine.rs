@@ -349,6 +349,26 @@ mod tests {
 
         assert_eq!(engine.get(b"k").unwrap(), Some(bytes::Bytes::from("v2")),);
     }
+
+    #[test]
+fn tombstone_shadows_value_across_flush_boundary() {
+    let dir = tempfile::tempdir().unwrap();
+
+    let mut engine = StorageEngine::open(dir.path()).unwrap();
+
+    engine.put(b"k", b"v").unwrap();
+
+    engine.flush_for_test().unwrap();
+
+    assert_eq!(engine.sstable_count(), 1);
+
+    engine.delete(b"k").unwrap();
+
+    assert_eq!(
+        engine.get(b"k").unwrap(),
+        None,
+    );
+}
 }
 
 #[test]
